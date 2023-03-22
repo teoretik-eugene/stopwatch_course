@@ -1,20 +1,20 @@
 /*
- * kurs_sec.c
+ * kurs_atmega8.c
  *
- * Created: 05.03.2023 16:21:26
+ * Created: 09.03.2023 20:07:18
  * Author : genyl
  */ 
-
 #define F_CPU 8000000UL
 #include <avr/io.h>
 #include <util/delay.h>
 #include <avr/interrupt.h>
 
-#define NUMBERS PORTB		// Порт для чисел
+#define NUMBERS PORTD
 
 int digits[4] = {0, 0, 0, 0};		// Массив для разрядов
 int sec = 0;	// Количество секунд
 int lap = 0;	// Режим круга в секундомере
+int paused = 0;		// Выставлен на паузу
 
 unsigned int nums[10] = {
 	0x3F,		// 0
@@ -28,15 +28,187 @@ unsigned int nums[10] = {
 	0x7F,		// 8
 	0x6F
 };
-// Переводит число в разряды
-void convert_num(int num){
-	for(int i = 3; i >= 0; i--){
-		digits[i] = num % 10;
-		num /= 10;
-	}	
+
+unsigned int nums_anod[10] = {
+	~0x3F,		// 0
+	~0x6,		// 1
+	~0x5B,		// 2
+	~0x4F,		// 3
+	~0x66,		// 4
+	~0x6D,		// 5
+	~0x7D,		// 6
+	~0x7,		// 7
+	~0x7F,		// 8
+	~0x6F
+};
+
+void format_time(int num);
+
+void display_num(void);
+
+void start(void);
+
+void pause(void);
+
+void set_lap(void);
+
+ISR(TIMER1_COMPA_vect){
+	sec++;
+	if(!lap){		// Если не включен режим круга
+		//convert_num(sec);
+		format_time(sec);		// показываем каждую секунду засеченное время
+	}else{
+		// показывать запомненное время
+		
+	}
+	/*
+	поработать если включен режим круга
+	*/
+}
+
+int main(void){
+	
+	// Настраиваем направления регистров
+	DDRD = 0b11111111;			// Индикаторы на выход
+	DDRB = 0b00111111;			// Разряды на выход
+    
+	DDRC = 0b0000000;			// Настроим все на вход
+	
+	PORTB = 0b00001111;
+	PORTC = 0b1111111;		// Подтягиваем потенциалы на входах
+	sei();					// Разрешить глобальные прерывания
+	
+    while (1){
+		display_num();
+		
+		// Старт
+		if(~PINC & (1<<0)){
+			start();
+			//_delay_ms(200);
+		}
+		
+		// Пауза
+		if(~PINC & (1<<1)){
+			pause();
+			//_delay_ms(200);
+		}
+		
+		if(~PINC & (1<<2)){
+			set_lap();
+			_delay_ms(200);
+		}
+    }
+}
+
+void start(void){
+	if(lap)		// не даем юзать эту кнопку во время режима круга 
+		return;
+	
+	paused = 0;		// Выходим из паузы
+	
+	PORTB &= ~(1<<4);		// Выключить светодиод паузы
+	
+	// Настраиваем предделитель частоты
+	
+	// Поделим частоту тактирования на 256
+	TCCR1B |= (1<<CS12);
+	TCCR1B &= ~((1<<CS11) | (1<<CS10));
+	
+	/*
+	TCCR1B &= ~(1<<CS12);
+	TCCR1B |= ((1<<CS10) | (1<<CS11));		// а если на 256*/
+	
+	// Делим частоту на 256, чтобы вместить число в верхний и нижний регистры
+	
+	TIMSK |= (1<<OCIE1A);		// Прерывания по совпадению
+		
+	// Сравниваем по значению 31 250
+	OCR1AH = 0b01111010;
+	OCR1AL = 0b00010010;
+	
+	/***********************************************************************
+		Посмотреть как там происхрдит чтение и запись в верхний и нижний бит
+	/************************************************************************/
+	
+	//TCNT1 = 0;		// Счетчик в нуле // нам не нужно обнулять каждый раз
+	
+	TCCR1B |= (1<<WGM12);		// Сброс при совпадении		СТС
+}
+
+// Функция паузы 
+void pause(void){
+	if(lap)		// Если режим круга включен, то не даем пользоваться этой функцией
+		return;
+		
+	paused = 1;		// Стоит на паузе
+		
+	TCCR1B &= ~((1<<0) | (1<<1) | (1<<2));		// останавливаем счетчик
+	
+	// Можно зажечь светодиод
+	PORTB |= (1<<4);
+	
+}
+
+// Засечь время одного круга
+void set_lap(void){
+	/*
+	
+	ПОСМОТРЕТЬ ФЛАГИ
+	
+	*/
+	// Если на паузе, то не даем пользоваться кругом
+	if(paused)
+		return;
+	
+	lap = 1;		// Врубили режим круга
+	
+	format_time(sec);		// отображаем последнее записанное время
+	
+	TCNT1 = 0;		// обнуляем счетчик
+	sec = 0;		// начинаем отсчет заново, новый круг
+	
+	// Зажигаем светодиод
+	PORTB |= (1<<5);
+}
+
+// Функция отображения чисел на семисегментном индикаторе
+void display_num(void){
+	int time_ = 3;		// ms
+	
+	NUMBERS = nums[digits[0]];
+	PORTB |= (1<<0);
+	_delay_ms(time_);
+	PORTB &= ~(1<<0);
+	
+	NUMBERS = nums[digits[1]];
+	NUMBERS |= (1<<7);
+	PORTB |= (1<<1);
+	_delay_ms(time_);
+	PORTB &= ~(1<<1);
+	
+	NUMBERS = nums[digits[2]];
+	PORTB |= (1<<2);
+	_delay_ms(time_);
+	PORTB &= ~(1<<2);
+	
+	NUMBERS = nums[digits[3]];
+	PORTB |= (1<<3);
+	_delay_ms(time_);
+	PORTB &= ~(1<<3);
+	
+	
+}
+
+void display_anod(void){
+	int time_ = 3;
+	
+	
 }
 
 // Время в нужном формате
+/*
+	Эта функция изменяет отображение в реальном формате
+*/
 void format_time(int num){
 	
 	if(num >= 3599){		// если будет 59:59, то не считает дальше
@@ -44,7 +216,7 @@ void format_time(int num){
 		digits[2] = 5;
 		digits[1] = 9;
 		digits[0] = 5;
-	}else{
+		}else{
 		// Форматирование секунд в 60-минутный формат
 		
 		int sec = num % 60;
@@ -56,117 +228,6 @@ void format_time(int num){
 		
 		// Записываем минуты
 		digits[1] = minutes % 10;
-		digits[0] = minutes / 10;	
+		digits[0] = minutes / 10;
 	}
 }
-
-void display_num(){	
-	int time_ = 50;
-	
-	NUMBERS = nums[digits[0]];
-	PORTD &= ~(1<<0);
-	_delay_ms(time_);
-	PORTD |= (1<<0);
-	
-	NUMBERS = nums[digits[1]];
-	NUMBERS |= (1<<7);		// не забываем про точку
-	PORTD &= ~(1<<1);
-	_delay_ms(time_);
-	PORTD |= (1<<1);
-	
-	NUMBERS = nums[digits[2]];
-	PORTD &= ~(1<<2);
-	_delay_ms(time_);
-	PORTD |= (1<<2);
-	
-	NUMBERS = nums[digits[3]];
-	PORTD &= ~(1<<3);
-	_delay_ms(time_);
-	PORTD |= (1<<3);
-	/*
-	NUMBERS = nums[digits[0]];
-	PORTD = ~0b00000001;
-	_delay_ms(time_);
-	NUMBERS = nums[digits[1]];
-	NUMBERS |= (1<<7);
-	PORTD = ~0b00000010;
-	_delay_ms(time_);
-	NUMBERS = nums[digits[2]];
-	PORTD = ~0b00000100;
-	_delay_ms(time_);
-	NUMBERS = nums[digits[3]];
-	PORTD = ~0b00001000;
-	_delay_ms(time_);
-	*/
-}
-
-// Настройка счетчика
-void start(void){
-	// Настраиваем деление частоты
-	
-	// Поделим частоту на 256
-	TCCR1B |= (1<<CS12);
-	TCCR1B &= ~((1<<CS11) | (1<<CS10));
-	
-	/*
-	TCCR1B &= ~(1<<CS12);
-	TCCR1B |= ((1<<CS10) | (1<<CS11));		// Делим частоту на 64		// а если на 256*/
-	
-	TIMSK |= (1<<OCIE1A);		// Прерывания по совпадению
-		
-	// Сравниваем по значению 31 250
-	OCR1AH = 0b01111010;
-	OCR1AL = 0b00010010;
-	
-	TCNT1 = 0;		// Счетчик в нуле 
-	
-	TCCR1B |= (1<<WGM12);		// Сброс при совпадении
-	
-}
-
-void pause(void){
-	// Зажигаем светодиод, означающий, что поставили на паузу
-	
-}
-
-ISR(TIMER1_COMPA_vect){
-	sec++;
-	if(lap == 0){		// Если не режим круга включен
-		//convert_num(sec);
-		format_time(sec);
-	}
-	/*
-	поработать если включен режим круга
-	*/
-}
-
-int main(void){
-	
-	/*Настраиваем регистры направления*/
-	DDRB = 0b11111111;
-	DDRD = 0b00011111;		// Кнопки на вход, индикаторы и светодиод на выход
-	/*Настраиваем выходное напряжение*/
-	PORTD = 0b1101111;
-	
-	sei();		// Разрешаем глобальные прерывания
-	
-    while (1){
-		display_num();
-		
-		// Кнопка старта
-		if(~PIND & (1<<6)){
-			start();
-			_delay_ms(200);
-		}
-		
-		if(~PIND & (1<<5)){
-			pause();
-			_delay_ms(200);
-		}
-		
-		// Кнопка паузы
-		
-		// Кнопка круга
-    }
-}
-
