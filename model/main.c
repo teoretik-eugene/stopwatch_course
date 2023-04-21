@@ -15,6 +15,8 @@ int digits[4] = {0, 0, 0, 0};		// Массив для разрядов
 int sec = 0;	// Количество секунд
 int lap = 0;	// Режим круга в секундомере
 int paused = 0;		// Выставлен на паузу
+int en = 1;
+int laped = 1;		// кнопка нажата
 
 unsigned int nums[10] = {
 	0x3F,		// 0
@@ -29,17 +31,17 @@ unsigned int nums[10] = {
 	0x6F
 };
 
-unsigned int nums_anod[10] = {
-	~0x3F,		// 0
-	~0x6,		// 1
-	~0x5B,		// 2
-	~0x4F,		// 3
-	~0x66,		// 4
-	~0x6D,		// 5
-	~0x7D,		// 6
-	~0x7,		// 7
-	~0x7F,		// 8
-	~0x6F
+unsigned int bin_nums[10] = {
+	0b00111111, // 0
+	0b00000110, // 1
+	0b01011011, // 2
+	0b01001111, // 3
+	0b01100110,	// 4
+	0b01101101,	// 5
+	0b01111101,	// 6
+	0b00000111,	// 7
+	0b01111111,	// 8
+	0b01101111	// 9
 };
 
 void format_time(int num);
@@ -93,9 +95,16 @@ int main(void){
 			//_delay_ms(200);
 		}
 		
-		if(~PINC & (1<<2)){
+		// если кнопка круга нажата
+		// 0000000 & 0000100
+		if(~PINC & (1<<2) && laped){
 			set_lap();
-			_delay_ms(200);
+			laped = 0;
+		}
+		// если кнопка круга отжата
+		// 1111111 & 0000100 = 0000100
+		if(PINC & (1<<2) && !laped){
+			laped = 1;
 		}
     }
 }
@@ -169,38 +178,40 @@ void set_lap(void){
 	
 	// Зажигаем светодиод
 	PORTB |= (1<<5);
+	//_delay_ms(20);
+	//TCNT1 = 0;
 }
 
 // Функция отображения чисел на семисегментном индикаторе
 void display_num(void){
-	int time_ = 3;		// ms
+	int time_ = 10;		// ms
 	
-	NUMBERS = nums[digits[0]];
+	NUMBERS = bin_nums[digits[0]];
 	PORTB |= (1<<0);
 	_delay_ms(time_);
 	PORTB &= ~(1<<0);
 	
-	NUMBERS = nums[digits[1]];
+	//_delay_ms(100);
+	
+	NUMBERS = bin_nums[digits[1]];
 	NUMBERS |= (1<<7);
 	PORTB |= (1<<1);
 	_delay_ms(time_);
 	PORTB &= ~(1<<1);
 	
-	NUMBERS = nums[digits[2]];
+	//_delay_ms(100);
+	
+	NUMBERS = bin_nums[digits[2]];
 	PORTB |= (1<<2);
 	_delay_ms(time_);
 	PORTB &= ~(1<<2);
 	
-	NUMBERS = nums[digits[3]];
+	//_delay_ms(100);
+	
+	NUMBERS = bin_nums[digits[3]];
 	PORTB |= (1<<3);
 	_delay_ms(time_);
 	PORTB &= ~(1<<3);
-	
-	
-}
-
-void display_anod(void){
-	int time_ = 3;
 	
 	
 }
@@ -216,7 +227,7 @@ void format_time(int num){
 		digits[2] = 5;
 		digits[1] = 9;
 		digits[0] = 5;
-		}else{
+	}else{
 		// Форматирование секунд в 60-минутный формат
 		
 		int sec = num % 60;
